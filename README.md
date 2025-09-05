@@ -1,12 +1,13 @@
 # Merge Tab Groups (Chrome Extension)
 
-Merge Chrome tab groups by name or manual selection. Optimized for low-power laptops.
+Merge Chrome tab groups by name or manual selection.
 
 ## Features
 - **Merge duplicates by name** (one click or keyboard shortcut).
 - **Merge selected groups** into a single target (optional title).
 - **Fast Merge**: discards tabs while moving so they don’t load.
 - **Keep Collapsed**: keep groups collapsed after merge.
+Note: Chrome’s Saved Tab Groups (those chips on the toolbar) aren’t exposed to extensions when closed, so merging them requires opening at least one of the groups.
 - Auto-merge on group changes (optional).
 
 ## Install (Dev)

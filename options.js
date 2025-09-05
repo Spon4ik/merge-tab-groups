@@ -1,4 +1,4 @@
-const ids = ["autoMerge", "caseSensitive", "includeUnnamed"];
+const ids = ["autoMerge", "caseSensitive", "includeUnnamed", "fastMerge", "keepCollapsed"];
 const els = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
 async function load() {
