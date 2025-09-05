@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Merge Tab Groups",
+  "description": "Merge Chrome tab groups by name or by manual selection. Optional auto-merge.",
+  "version": "0.1.0",
+  "permissions": ["tabGroups", "tabs", "storage"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Merge Tab Groups",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "commands": {
+    "merge_same_names_current_window": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+M"
+      },
+      "description": "Merge groups with the same name in the current window"
+    }
+  }
+}

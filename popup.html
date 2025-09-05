@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Merge Tab Groups</title>
+    <style>
+      body { font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 12px; min-width: 320px; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+      .groups { max-height: 260px; overflow: auto; border: 1px solid #ddd; border-radius: 6px; padding: 6px; }
+      .group-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px dashed #eee; }
+      .group-item:last-child { border-bottom: none; }
+      .title { font-weight: 600; }
+      .muted { color: #666; }
+      button { padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; background: #f6f6f6; cursor: pointer; }
+      button:hover { background: #eee; }
+      input[type="text"] { width: 100%; padding: 6px 8px; }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .small { font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="row actions">
+      <button id="refresh">Refresh</button>
+      <button id="merge-duplicates">Merge duplicates (same name)</button>
+      <a class="small" href="options.html" target="_blank" rel="noopener">Settings</a>
+    </div>
+
+    <h3>Merge selected into one</h3>
+    <div class="row">
+      <input id="targetTitle" type="text" placeholder="Target group title (optional)" />
+      <button id="merge-selected">Merge selected</button>
+    </div>
+
+    <div class="groups" id="groups"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

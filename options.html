@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Merge Tab Groups – Settings</title>
+    <style>
+      body { font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 720px; }
+      label { display: block; margin: 10px 0; }
+      button { padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; background: #f6f6f6; cursor: pointer; }
+      button:hover { background: #eee; }
+      .muted { color: #666; }
+    </style>
+  </head>
+  <body>
+    <h2>Settings</h2>
+    <label><input type="checkbox" id="autoMerge" /> Auto-merge groups with the same name</label>
+    <label><input type="checkbox" id="caseSensitive" /> Case-sensitive title matching</label>
+    <label><input type="checkbox" id="includeUnnamed" /> Include unnamed groups in duplicate merges</label>
+    <p class="muted">Scope is currently limited to the current window. We’ll add multi-window merging next.</p>
+    <button id="save">Save</button>
+    <span id="status" class="muted"></span>
+
+    <script src="options.js"></script>
+  </body>
+</html>
