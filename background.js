@@ -80,7 +80,7 @@ async function mergeGroupSet(targetGroupId, otherGroupIds, { fastMerge = true } 
       if (notActive.length) await safeDiscardTabs(notActive);
     }
     if (tabIds.length) {
-      await chrome.tabs.group({ tabIds, groupId: targetGroupId });
+      try { await chrome.tabs.group({ tabIds, groupId: targetGroupId }); } catch {}
     }
     // When a group loses all its tabs, the group disappears automatically.
   }
@@ -94,7 +94,7 @@ async function drainGroupToTarget(targetGroupId, sourceGroupId, { fastMerge = tr
     const notActive = tabs.filter(t => !t.active).map(t => t.id);
     if (notActive.length) await safeDiscardTabs(notActive);
   }
-  await chrome.tabs.group({ tabIds: tabs.map(t => t.id), groupId: targetGroupId });
+  try { await chrome.tabs.group({ tabIds: tabs.map(t => t.id), groupId: targetGroupId }); } catch {}
 }
 
 async function recomputeAndDrainDuplicates(windowId, { caseSensitive, includeUnnamed, fastMerge, keepCollapsed }) {
@@ -342,7 +342,9 @@ async function maybeAttachAutoMergeListeners() {
   if (fastMerge) {
     tabCreatedHandlerRef = (tab) => {
       if (!tab || tab.active) return;
-      try { chrome.tabs.discard(tab.id); } catch {}
+      if (typeof tab.id === 'number') {
+        void chrome.tabs.discard(tab.id).catch(() => {});
+      }
       // If tab is in a duplicate group, move it immediately
       if (typeof tab.groupId === 'number' && tab.groupId >= 0 && typeof tab.windowId === 'number') {
         const st = duplicateTargets.get(tab.windowId);
@@ -351,7 +353,9 @@ async function maybeAttachAutoMergeListeners() {
             const key = normalizeTitle(g.title, caseSensitive);
             const e = st.get(key);
             if (e && e.target && e.target !== g.id) {
-              try { chrome.tabs.group({ tabIds: [tab.id], groupId: e.target }); } catch {}
+              if (typeof tab.id === 'number') {
+                void chrome.tabs.group({ tabIds: [tab.id], groupId: e.target }).catch(() => {});
+              }
             }
           }).catch(() => {});
         }
@@ -361,16 +365,18 @@ async function maybeAttachAutoMergeListeners() {
       const joinedGroup = typeof changeInfo.groupId === 'number' && changeInfo.groupId >= 0;
       const startedLoading = changeInfo.status === 'loading';
       if ((joinedGroup || startedLoading) && tab && !tab.active) {
-        try { chrome.tabs.discard(tabId); } catch {}
+        if (typeof tabId === 'number') {
+          void chrome.tabs.discard(tabId).catch(() => {});
+        }
         // If this tab is part of a duplicate group, move it now
-        if (typeof tab.windowId === 'number') {
+        if (typeof tab.windowId === 'number' && typeof tab.groupId === 'number' && tab.groupId >= 0) {
           const st = duplicateTargets.get(tab.windowId);
           if (st) {
             chrome.tabGroups.get(tab.groupId).then(g => {
               const key = normalizeTitle(g.title, caseSensitive);
               const e = st.get(key);
               if (e && e.target && e.target !== g.id) {
-                try { chrome.tabs.group({ tabIds: [tabId], groupId: e.target }); } catch {}
+                void chrome.tabs.group({ tabIds: [tabId], groupId: e.target }).catch(() => {});
               }
             }).catch(() => {});
           }

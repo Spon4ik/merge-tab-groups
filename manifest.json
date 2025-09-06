@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Merge Tab Groups",
   "description": "Merge Chrome tab groups by name or by manual selection. Optional auto-merge.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "permissions": ["tabGroups", "tabs", "storage"],
   "background": {
     "service_worker": "background.js",
