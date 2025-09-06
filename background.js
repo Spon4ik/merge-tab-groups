@@ -4,8 +4,8 @@ const DEFAULTS = {
   autoMerge: false,          // when true, dedupe groups by name on changes
   caseSensitive: false,      // title matching
   includeUnnamed: false,     // whether to merge groups with empty titles
-  fastMerge: true,           // discard tabs to avoid loading while merging
-  keepCollapsed: true,       // keep final merged group collapsed
+  fastMerge: false,          // discard tabs during merge only (optional)
+  keepCollapsed: false,      // keep final merged group collapsed (optional)
   scope: "currentWindow"     // "currentWindow" | "allWindows" (MVP uses currentWindow)
 };
 
@@ -32,8 +32,8 @@ const duplicateTargets = new Map();
 
 // Track attached listeners to avoid duplicates across settings reloads
 let autoHandlerRef = null;
-let tabCreatedHandlerRef = null;
-let tabUpdatedHandlerRef = null;
+let tabCreatedHandlerRef = null; // not used now; kept for future diagnostics
+let tabUpdatedHandlerRef = null; // not used now; kept for future diagnostics
 let tabGroupHandlersAttached = false;
 
 function normalizeTitle(title, caseSensitive) {
@@ -56,16 +56,30 @@ async function listTabsInGroup(groupId) {
   return await chrome.tabs.query({ groupId });
 }
 
+function shouldAvoidDiscard(tab) {
+  if (!tab || tab.active) return true;
+  const url = (tab.url || "").trim();
+  const hasPending = typeof tab.pendingUrl === 'string' && tab.pendingUrl.length > 0;
+  // Don’t discard tabs that haven’t committed a real URL yet (about:blank or pending navigation)
+  if (!url || url === 'about:blank' || hasPending) return true;
+  return false;
+}
+
 async function safeDiscardTabs(tabIds) {
   // Best-effort discard; ignore failures (e.g., active tab or already discarded)
   await Promise.allSettled(tabIds.map(id => chrome.tabs.discard(id)));
 }
 
+async function safeDiscardFromTabs(tabs) {
+  const ids = tabs.filter(t => !shouldAvoidDiscard(t)).map(t => t.id);
+  if (!ids.length) return;
+  await safeDiscardTabs(ids);
+}
+
 async function discardNonActiveTabsInGroup(groupId) {
   try {
     const tabs = await listTabsInGroup(groupId);
-    const ids = tabs.filter(t => !t.active).map(t => t.id);
-    if (ids.length) await safeDiscardTabs(ids);
+    await safeDiscardFromTabs(tabs);
   } catch {}
 }
 
@@ -75,10 +89,7 @@ async function mergeGroupSet(targetGroupId, otherGroupIds, { fastMerge = true } 
     if (gid === targetGroupId) continue;
     const tabs = await listTabsInGroup(gid);
     const tabIds = tabs.map(t => t.id);
-    if (fastMerge && tabIds.length) {
-      const notActive = tabs.filter(t => !t.active).map(t => t.id);
-      if (notActive.length) await safeDiscardTabs(notActive);
-    }
+    if (fastMerge && tabs.length) await safeDiscardFromTabs(tabs);
     if (tabIds.length) {
       try { await chrome.tabs.group({ tabIds, groupId: targetGroupId }); } catch {}
     }
@@ -90,10 +101,7 @@ async function drainGroupToTarget(targetGroupId, sourceGroupId, { fastMerge = tr
   if (targetGroupId === sourceGroupId) return;
   const tabs = await listTabsInGroup(sourceGroupId);
   if (!tabs.length) return;
-  if (fastMerge) {
-    const notActive = tabs.filter(t => !t.active).map(t => t.id);
-    if (notActive.length) await safeDiscardTabs(notActive);
-  }
+  if (fastMerge) await safeDiscardFromTabs(tabs);
   try { await chrome.tabs.group({ tabIds: tabs.map(t => t.id), groupId: targetGroupId }); } catch {}
 }
 
@@ -122,6 +130,28 @@ async function recomputeAndDrainDuplicates(windowId, { caseSensitive, includeUnn
     await chrome.tabGroups.update(target.id, { title: target.title, collapsed: !!keepCollapsed });
   }
   duplicateTargets.set(windowId, index);
+}
+
+async function findDuplicateTargetGroup(windowId, title, { caseSensitive = false, includeUnnamed = false } = {}) {
+  const key = normalizeTitle(title, caseSensitive);
+  if (!includeUnnamed && key === "") return null;
+  const groups = await listGroups("currentWindow", windowId);
+  const same = groups.filter(g => normalizeTitle(g.title, caseSensitive) === key);
+  if (same.length < 2) return null;
+  // Choose stable target: smallest group id
+  same.sort((a, b) => a.id - b.id);
+  return same[0].id;
+}
+
+async function moveTabToDuplicateTargetIfAny(tab, { caseSensitive = false, includeUnnamed = false } = {}) {
+  try {
+    if (!tab || typeof tab.windowId !== 'number' || typeof tab.groupId !== 'number' || tab.groupId < 0) return;
+    const g = await chrome.tabGroups.get(tab.groupId);
+    const targetId = await findDuplicateTargetGroup(tab.windowId, g.title || "", { caseSensitive, includeUnnamed });
+    if (targetId && targetId !== g.id) {
+      await chrome.tabs.group({ tabIds: [tab.id], groupId: targetId }).catch(() => {});
+    }
+  } catch { /* ignore */ }
 }
 
 async function mergeDuplicatesByName({ scope = "currentWindow", windowId = undefined, caseSensitive = false, includeUnnamed = false, fastMerge = true, keepCollapsed = true }) {
@@ -309,12 +339,20 @@ async function maybeAttachAutoMergeListeners() {
           await recomputeAndDrainDuplicates(g.windowId, { caseSensitive: !!caseSensitive, includeUnnamed: !!includeUnnamed, fastMerge: !!fastMerge, keepCollapsed: !!keepCollapsed });
         }, 80);
       }
-      if (fastMerge) setTimeout(() => discardNonActiveTabsInGroup(g.id), 80);
     },
     onGroupUpdated: (g) => handler(g.windowId),
     onGroupMoved: (g) => handler(g.windowId),
     onGroupRemoved: (g) => handler(g.windowId),
-    onTabUpdated: (_tabId, _info, tab) => { if (tab.groupId >= 0) handler(tab.windowId); },
+    onTabUpdated: async (tabId, changeInfo, tab) => {
+      if (!tab || typeof tab.windowId !== 'number') return;
+      if (typeof tab.groupId === 'number' && tab.groupId >= 0) {
+        // If URL just committed, try moving this one tab immediately.
+        if (changeInfo && typeof changeInfo.url === 'string' && changeInfo.url && changeInfo.url !== 'about:blank') {
+          await moveTabToDuplicateTargetIfAny(tab, { caseSensitive: !!caseSensitive, includeUnnamed: !!includeUnnamed });
+        }
+        handler(tab.windowId);
+      }
+    },
     onTabMoved: (_tabId, moveInfo) => handler(moveInfo.windowId),
     onTabDetached: (_tabId, detachInfo) => handler(detachInfo.oldWindowId),
     onTabAttached: (_tabId, attachInfo) => handler(attachInfo.newWindowId),
@@ -330,62 +368,9 @@ async function maybeAttachAutoMergeListeners() {
   chrome.tabs.onAttached.addListener(autoHandlerRef.onTabAttached);
   tabGroupHandlersAttached = true;
 
-  // Early discard on tab creation and grouping/loads
-  if (tabCreatedHandlerRef) {
-    try { chrome.tabs.onCreated.removeListener(tabCreatedHandlerRef); } catch {}
-    tabCreatedHandlerRef = null;
-  }
-  if (tabUpdatedHandlerRef) {
-    try { chrome.tabs.onUpdated.removeListener(tabUpdatedHandlerRef); } catch {}
-    tabUpdatedHandlerRef = null;
-  }
-  if (fastMerge) {
-    tabCreatedHandlerRef = (tab) => {
-      if (!tab || tab.active) return;
-      if (typeof tab.id === 'number') {
-        void chrome.tabs.discard(tab.id).catch(() => {});
-      }
-      // If tab is in a duplicate group, move it immediately
-      if (typeof tab.groupId === 'number' && tab.groupId >= 0 && typeof tab.windowId === 'number') {
-        const st = duplicateTargets.get(tab.windowId);
-        if (st) {
-          chrome.tabGroups.get(tab.groupId).then(g => {
-            const key = normalizeTitle(g.title, caseSensitive);
-            const e = st.get(key);
-            if (e && e.target && e.target !== g.id) {
-              if (typeof tab.id === 'number') {
-                void chrome.tabs.group({ tabIds: [tab.id], groupId: e.target }).catch(() => {});
-              }
-            }
-          }).catch(() => {});
-        }
-      }
-    };
-    tabUpdatedHandlerRef = (tabId, changeInfo, tab) => {
-      const joinedGroup = typeof changeInfo.groupId === 'number' && changeInfo.groupId >= 0;
-      const startedLoading = changeInfo.status === 'loading';
-      if ((joinedGroup || startedLoading) && tab && !tab.active) {
-        if (typeof tabId === 'number') {
-          void chrome.tabs.discard(tabId).catch(() => {});
-        }
-        // If this tab is part of a duplicate group, move it now
-        if (typeof tab.windowId === 'number' && typeof tab.groupId === 'number' && tab.groupId >= 0) {
-          const st = duplicateTargets.get(tab.windowId);
-          if (st) {
-            chrome.tabGroups.get(tab.groupId).then(g => {
-              const key = normalizeTitle(g.title, caseSensitive);
-              const e = st.get(key);
-              if (e && e.target && e.target !== g.id) {
-                void chrome.tabs.group({ tabIds: [tabId], groupId: e.target }).catch(() => {});
-              }
-            }).catch(() => {});
-          }
-        }
-      }
-    };
-    chrome.tabs.onCreated.addListener(tabCreatedHandlerRef);
-    chrome.tabs.onUpdated.addListener(tabUpdatedHandlerRef);
-  }
+  // Ensure no experimental discard listeners remain that might interfere with navigation
+  if (tabCreatedHandlerRef) { try { chrome.tabs.onCreated.removeListener(tabCreatedHandlerRef); } catch {} tabCreatedHandlerRef = null; }
+  if (tabUpdatedHandlerRef) { try { chrome.tabs.onUpdated.removeListener(tabUpdatedHandlerRef); } catch {} tabUpdatedHandlerRef = null; }
 }
 maybeAttachAutoMergeListeners();
 
