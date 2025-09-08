@@ -10,6 +10,9 @@ Merge Chrome tab groups by name or manual selection.
 Note: Chrome’s Saved Tab Groups (those chips on the toolbar) aren’t exposed to extensions when closed, so merging them requires opening at least one of the groups.
 - Auto-merge on group changes (optional).
 
+## Install (Store)
+- Chrome Web Store: [Merge Tab Groups](https://chromewebstore.google.com/detail/jdbnhiecjaimhhiaegdecbakmnejlbhe?utm_source=item-share-cb)
+
 ## Install (Dev)
 1. Clone/download this folder.
 2. Open `chrome://extensions`, toggle **Developer mode**.
